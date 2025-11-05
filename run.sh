@@ -121,7 +121,7 @@ else
 fi
 
 # Kernel command line parameters
-KERNEL_CMDLINE="console=hvc0 root=/dev/vda rw"
+KERNEL_CMDLINE="console=ttyAMA0 root=/dev/vda rw"
 
 log "Configuration:"
 log "  Kernel: $KERNEL"
@@ -138,7 +138,7 @@ LKVM_ARGS=(
     "--kernel" "$KERNEL"
     "--disk" "$DISK"
     "--network" "mode=tap,tapif=$TAP_DEVICE,guest_ip=$GUEST_IP,host_ip=$TAP_IP"
-    "--console" "virtio"
+    "--console" "serial"
     "--mem" "$GUEST_RAM_MB"
     "--cpus" "$NCPU"
     "--params" "$KERNEL_CMDLINE"
