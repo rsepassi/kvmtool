@@ -4,17 +4,36 @@
 
 set -e
 
-# Paths - adjust these as needed
-LKVM="/lkvm-static"
-KERNEL="/kernel"
-DISK="/disk.img"
+# Parse arguments
+TARGET_ARCH=""
 
-# Network configuration
-TAP_DEVICE="tap0"
-TAP_IP="10.0.0.1"
-TAP_SUBNET="10.0.0.0/24"
-GUEST_IP="10.0.0.2"
-GATEWAY="10.0.0.1"
+usage() {
+    echo "Usage: $0 [ARCH]"
+    echo
+    echo "Run lkvm guest VM as init (PID 1)."
+    echo
+    echo "Supported architectures:"
+    echo "  x86_64, x86-64, amd64    - x86 64-bit"
+    echo "  arm64, aarch64           - ARM 64-bit"
+    echo "  riscv64                  - RISC-V 64-bit"
+    echo
+    echo "If ARCH is not specified, attempts to auto-detect from:"
+    echo "  1. uname -m (host architecture)"
+    echo "  2. Available lkvm-static-* binary"
+    echo
+    echo "Examples:"
+    echo "  $0 arm64       # Run ARM64 guest"
+    echo "  $0 x86_64      # Run x86_64 guest"
+    echo "  $0             # Auto-detect architecture"
+    echo
+    exit 0
+}
+
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    usage
+fi
+
+TARGET_ARCH="${1:-}"
 
 # Log helper
 log() {
@@ -32,12 +51,62 @@ error() {
     fi
 }
 
+# Auto-detect architecture if not specified
+if [ -z "$TARGET_ARCH" ]; then
+    # Try to detect from host
+    TARGET_ARCH=$(uname -m)
+    log "Auto-detected architecture from host: $TARGET_ARCH"
+fi
+
+# Normalize architecture names and set parameters
+case "$TARGET_ARCH" in
+    x86_64|x86-64|amd64)
+        ARCH_NAME="x86_64"
+        CONSOLE_DEV="ttyS0"
+        ;;
+    arm64|aarch64)
+        ARCH_NAME="arm64"
+        CONSOLE_DEV="ttyAMA0"
+        ;;
+    riscv64|riscv)
+        ARCH_NAME="riscv64"
+        CONSOLE_DEV="ttyS0"
+        ;;
+    *)
+        error "Unsupported architecture '$TARGET_ARCH'. Supported: x86_64, arm64, riscv64"
+        ;;
+esac
+
+# Paths - adjust these as needed
+# Try architecture-specific binary first, then fall back to generic name
+LKVM=""
+if [ -f "/lkvm-static-${ARCH_NAME}" ]; then
+    LKVM="/lkvm-static-${ARCH_NAME}"
+elif [ -f "/lkvm-static" ]; then
+    LKVM="/lkvm-static"
+elif [ -f "/lkvm" ]; then
+    LKVM="/lkvm"
+else
+    error "lkvm binary not found. Tried: /lkvm-static-${ARCH_NAME}, /lkvm-static, /lkvm"
+fi
+
+KERNEL="/kernel"
+DISK="/disk.img"
+
+# Network configuration
+TAP_DEVICE="tap0"
+TAP_IP="10.0.0.1"
+TAP_SUBNET="10.0.0.0/24"
+GUEST_IP="10.0.0.2"
+GATEWAY="10.0.0.1"
+
 # Check if we're running as root
 if [ "$(id -u)" -ne 0 ]; then
     error "Must run as root"
 fi
 
-log "Starting kvmtool init"
+log "Starting kvmtool init for $ARCH_NAME"
+log "Using binary: $LKVM"
 
 # Check for required files
 if [ ! -f "$LKVM" ]; then
@@ -120,10 +189,12 @@ else
     log "Warning: Could not detect main network interface, NAT may not work"
 fi
 
-# Kernel command line parameters
-KERNEL_CMDLINE="console=ttyAMA0 root=/dev/vda rw"
+# Kernel command line parameters - use architecture-specific console
+KERNEL_CMDLINE="console=${CONSOLE_DEV} root=/dev/vda rw"
 
 log "Configuration:"
+log "  Architecture: $ARCH_NAME"
+log "  Console device: $CONSOLE_DEV"
 log "  Kernel: $KERNEL"
 log "  Disk: $DISK"
 log "  RAM: ${GUEST_RAM_MB}M"
